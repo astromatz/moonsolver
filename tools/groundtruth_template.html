@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Krater markieren</title>
+<style>
+  :root {
+    --bg: #15171a; --panel: #1e2125; --line: #2e3238; --text: #e6e6e6; --muted: #9aa0a6;
+    --accent: #ffcc33; --ok: #5fd38d; --warn: #ff8a65;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  body { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 14px;
+    overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 17px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+  .help { color: var(--muted); font-size: 13px; }
+  .help ol { padding-left: 18px; margin: 6px 0 0; }
+  button, label.btn { background: #2b3036; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 10px; cursor: pointer; font: inherit; display: inline-block; }
+  button:hover, label.btn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+  input[type=file] { display: none; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  #files li { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  #files li:hover { background: #262a2f; }
+  #files li.active { background: #33393f; outline: 1px solid var(--accent); }
+  #files .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .count { color: var(--muted); flex: none; }
+  .count.done { color: var(--ok); }
+  #points li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  #points .pname { flex: 1; }
+  #points .pname.unknown { color: var(--warn); }
+  #points .xy { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #points button { padding: 1px 7px; }
+  main { position: relative; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  #empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; text-align: center; }
+  #popup { position: absolute; display: none; background: var(--panel); border: 1px solid var(--accent);
+    border-radius: 8px; padding: 8px; box-shadow: 0 6px 24px #0008; z-index: 5; }
+  #popup input { width: 240px; padding: 6px 8px; font: inherit; background: #111; color: var(--text);
+    border: 1px solid var(--line); border-radius: 5px; }
+  #popup .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  #status { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Krater markieren</h1>
+  <div class="help">
+    <ol>
+      <li><b>Fotos laden</b>: alle Bilder aus <code>testset</code> auswählen.</li>
+      <li>Links ein Foto wählen. Mausrad = zoomen, ziehen = verschieben.</li>
+      <li>Auf die <b>Mitte</b> eines Kraters klicken, Namen tippen, aus der Liste wählen, Enter.</li>
+      <li>5 Krater pro Foto. Falsch? Mit × löschen.</li>
+      <li><b>CSV speichern</b> und die Datei nach <code>testset\groundtruth.csv</code> legen (überschreiben).</li>
+    </ol>
+  </div>
+  <div>
+    <label class="btn primary" for="pick">Fotos laden</label>
+    <input id="pick" type="file" accept="image/*" multiple>
+    <label class="btn" for="importcsv">CSV öffnen</label>
+    <input id="importcsv" type="file" accept=".csv,text/csv">
+  </div>
+  <div>
+    <h2>Fotos</h2>
+    <ul id="files"></ul>
+  </div>
+  <div>
+    <h2>Krater in diesem Foto</h2>
+    <ul id="points"></ul>
+  </div>
+  <div>
+    <button class="primary" id="export">CSV speichern</button>
+    <button id="fit">Ganzes Bild</button>
+  </div>
+  <div id="status">Fortschritt wird im Browser zwischengespeichert.</div>
+</aside>
+<main>
+  <canvas id="cv"></canvas>
+  <div id="empty">Noch kein Foto geladen.<br>Links auf „Fotos laden“ klicken.</div>
+  <div id="popup">
+    <input id="nameInput" list="names" placeholder="Kratername, z. B. Tycho" autocomplete="off">
+    <div class="hint">Enter = übernehmen · Esc = abbrechen</div>
+  </div>
+  <datalist id="names"></datalist>
+</main>
+<script>
+const GAZ = /*GAZETTEER*/[];
+const known = new Set(GAZ.map(g => g[0]));
+const STORE = "moonsolver-groundtruth-v1";
+
+// Kraternamen zuerst, dann der Rest
+const dl = document.getElementById("names");
+dl.innerHTML = GAZ.map(g => `<option value="${g[0].replace(/"/g, "&quot;")}">${g[1]}, ${g[2]} km</option>`).join("");
+
+const images = {};          // file name -> HTMLImageElement
+let points = {};            // file name -> [{name, x, y}]
+let current = null;
+let view = { s: 1, ox: 0, oy: 0 };
+let pending = null;
+
+try { points = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { points = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(points)); } catch (e) {} }
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const popup = document.getElementById("popup");
+const nameInput = document.getElementById("nameInput");
+
+function resize() {
+  const r = cv.getBoundingClientRect();
+  cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+  draw();
+}
+new ResizeObserver(() => { resize(); if (!(view.s > 0)) fit(); }).observe(cv);
+
+function fit() {
+  const img = images[current]; if (!img) return;
+  const r = cv.getBoundingClientRect();
+  if (r.width < 10 || r.height < 10) { view.s = 0; return; }  // Layout noch nicht fertig
+  const s = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight) * 0.97;
+  view = { s, ox: (r.width - img.naturalWidth * s) / 2, oy: (r.height - img.naturalHeight * s) / 2 };
+  draw();
+}
+document.getElementById("fit").onclick = fit;
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const img = images[current];
+  document.getElementById("empty").style.display = img ? "none" : "grid";
+  if (!img) return;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.imageSmoothingEnabled = view.s < 2;
+  ctx.drawImage(img, view.ox, view.oy, img.naturalWidth * view.s, img.naturalHeight * view.s);
+  const pts = (points[current] || []).concat(pending ? [{ name: "?", x: pending.x, y: pending.y }] : []);
+  ctx.font = "600 14px system-ui, sans-serif";
+  for (const p of pts) {
+    const sx = view.ox + (p.x + 0.5) * view.s, sy = view.oy + (p.y + 0.5) * view.s;
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 4; cross(sx, sy);
+    ctx.strokeStyle = known.has(p.name) || p.name === "?" ? "#ffcc33" : "#ff8a65"; ctx.lineWidth = 2; cross(sx, sy);
+    ctx.lineWidth = 4; ctx.strokeStyle = "#000"; ctx.strokeText(p.name, sx + 12, sy - 10);
+    ctx.fillStyle = "#fff"; ctx.fillText(p.name, sx + 12, sy - 10);
+  }
+}
+function cross(x, y) {
+  ctx.beginPath();
+  ctx.moveTo(x - 10, y); ctx.lineTo(x - 3, y); ctx.moveTo(x + 3, y); ctx.lineTo(x + 10, y);
+  ctx.moveTo(x, y - 10); ctx.lineTo(x, y - 3); ctx.moveTo(x, y + 3); ctx.lineTo(x, y + 10);
+  ctx.stroke();
+}
+
+function toImage(ev) {
+  const r = cv.getBoundingClientRect();
+  return { x: (ev.clientX - r.left - view.ox) / view.s, y: (ev.clientY - r.top - view.oy) / view.s };
+}
+
+cv.addEventListener("wheel", ev => {
+  if (!images[current]) return;
+  ev.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const k = Math.exp(-ev.deltaY * 0.0015);
+  const s = Math.min(40, Math.max(0.05, view.s * k));
+  view.ox = mx - (mx - view.ox) * (s / view.s);
+  view.oy = my - (my - view.oy) * (s / view.s);
+  view.s = s; draw();
+}, { passive: false });
+
+let drag = null;
+cv.addEventListener("mousedown", ev => {
+  if (!images[current] || ev.button !== 0) return;
+  if (!(view.s > 0)) { fit(); return; }
+  drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy, moved: false };
+});
+window.addEventListener("mousemove", ev => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+  if (drag.moved) { view.ox = drag.ox + dx; view.oy = drag.oy + dy; cv.style.cursor = "grabbing"; draw(); }
+});
+window.addEventListener("mouseup", ev => {
+  if (!drag) return;
+  const d = drag; drag = null; cv.style.cursor = "crosshair";
+  if (d.moved || pending) return;
+  const p = toImage(ev);
+  const img = images[current];
+  if (p.x < 0 || p.y < 0 || p.x >= img.naturalWidth || p.y >= img.naturalHeight) return;
+  pending = { x: Math.floor(p.x), y: Math.floor(p.y) };
+  draw();
+  const r = cv.parentElement.getBoundingClientRect();
+  popup.style.left = Math.min(ev.clientX - r.left + 14, r.width - 270) + "px";
+  popup.style.top = Math.min(ev.clientY - r.top + 14, r.height - 80) + "px";
+  popup.style.display = "block";
+  nameInput.value = ""; nameInput.focus();
+});
+
+nameInput.addEventListener("keydown", ev => {
+  if (ev.key === "Escape") { closePopup(); }
+  if (ev.key === "Enter") {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    if (!known.has(name) && !confirm(`„${name}“ steht nicht im Gazetteer. Trotzdem übernehmen?`)) return;
+    (points[current] = points[current] || []).push({ name, x: pending.x, y: pending.y });
+    save(); closePopup(); renderLists();
+  }
+});
+function closePopup() { pending = null; popup.style.display = "none"; draw(); }
+
+function renderLists() {
+  const files = document.getElementById("files");
+  files.innerHTML = "";
+  for (const f of Object.keys(images).sort()) {
+    const n = (points[f] || []).length;
+    const li = document.createElement("li");
+    li.className = f === current ? "active" : "";
+    li.innerHTML = `<span class="name" title="${f}">${f}</span><span class="count ${n >= 5 ? "done" : ""}">${n}/5</span>`;
+    li.onclick = () => { current = f; closePopup(); fit(); renderLists(); };
+    files.appendChild(li);
+  }
+  const ul = document.getElementById("points");
+  ul.innerHTML = "";
+  (points[current] || []).forEach((p, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="pname ${known.has(p.name) ? "" : "unknown"}">${p.name}</span><span class="xy">${p.x}, ${p.y}</span><button title="löschen">×</button>`;
+    li.querySelector("button").onclick = () => { points[current].splice(i, 1); save(); renderLists(); draw(); };
+    ul.appendChild(li);
+  });
+  draw();
+}
+
+document.getElementById("pick").addEventListener("change", ev => {
+  const list = [...ev.target.files];
+  let left = list.length;
+  for (const file of list) {
+    const img = new Image();
+    img.onload = () => {
+      images[file.name] = img;
+      if (!current) { current = file.name; }
+      if (--left === 0) { resize(); fit(); renderLists(); }
+    };
+    img.src = URL.createObjectURL(file);
+  }
+  ev.target.value = "";
+});
+
+function csvField(s) { return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+function parseCsvLine(line) {
+  const out = []; let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+    else if (c === '"') q = true; else if (c === ",") { out.push(cur); cur = ""; } else cur += c;
+  }
+  out.push(cur); return out;
+}
+
+document.getElementById("export").onclick = () => {
+  const rows = ["file,name,x,y"];
+  for (const f of Object.keys(points).sort())
+    for (const p of points[f]) rows.push([f, p.name, p.x, p.y].map(v => csvField(String(v))).join(","));
+  const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "groundtruth.csv"; a.click();
+  document.getElementById("status").textContent = `${rows.length - 1} Einträge gespeichert. Datei aus „Downloads“ nach testset\\ verschieben.`;
+};
+
+document.getElementById("importcsv").addEventListener("change", async ev => {
+  const file = ev.target.files[0]; if (!file) return;
+  const lines = (await file.text()).split(/\r?\n/).filter(l => l.trim());
+  const imported = {};
+  for (const line of lines.slice(1)) {
+    const [f, name, x, y] = parseCsvLine(line);
+    if (!f || !name) continue;
+    (imported[f] = imported[f] || []).push({ name, x: +x, y: +y });
+  }
+  points = imported; save(); renderLists();
+  document.getElementById("status").textContent = `${lines.length - 1} Einträge aus ${file.name} geladen.`;
+  ev.target.value = "";
+});
+
+resize();
+renderLists();
+</script>
+</body>
+</html>
