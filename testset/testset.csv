@@ -1,1 +1,8 @@
-file,source,time_utc,lat_deg,lon_deg,limb_visible
+file,source,time_utc,lat_deg,lon_deg,limb_visible,time_uncertainty_min,crop_of
+#1_20220902_Moon_PDS_Lpro_100.0ms_Bin1_2600MC_gain0_9.7C_30Frames.jpg,astrocam,2022-09-02T19:00:00Z,50.9375,6.9603,yes,60,
+#2_20211018_Mond_714_QHY_5v1k_UV-IR.jpg,astrocam,2021-10-18T20:30:00Z,50.9375,6.9603,yes,90,
+#3_20221111_Tycho_Panorama_11Panels_MAK_290mc_22_41_28_10Pv1k_Drizzle15.jpg,astrocam,2022-11-11T21:41:28Z,50.9375,6.9603,partial,60,
+#4_20210420_Halbmond750mm_Canon 1100D.jpg,dslr,2021-04-20T20:00:00Z,50.9375,6.9603,yes,60,
+#1a_crop_Mitte.jpg,astrocam,2022-09-02T19:00:00Z,50.9375,6.9603,no,60,#1_20220902_Moon_PDS_Lpro_100.0ms_Bin1_2600MC_gain0_9.7C_30Frames.jpg@1284+906
+#3a_crop_Tycho.jpg,astrocam,2022-11-11T21:41:28Z,50.9375,6.9603,no,60,#3_20221111_Tycho_Panorama_11Panels_MAK_290mc_22_41_28_10Pv1k_Drizzle15.jpg@492+328
+#3b_crop_Hochland.jpg,astrocam,2022-11-11T21:41:28Z,50.9375,6.9603,no,60,#3_20221111_Tycho_Panorama_11Panels_MAK_290mc_22_41_28_10Pv1k_Drizzle15.jpg@2132+0
