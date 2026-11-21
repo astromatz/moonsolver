@@ -14,6 +14,18 @@ Ansatz (Phase 1): Aus Aufnahmezeit und Standort wird die Mondansicht berechnet (
 | `testset/` | Testfotos mit Zeit, Ort und Ground Truth |
 | `tests/` | Tests |
 
+## Stand
+
+`scripts/evaluate.py` misst am Testset (Ziel: Median-Fehler < 1 % des Mondradius):
+
+| Bild | Ergebnis |
+| --- | --- |
+| #1, #2, #3, #4 (mit Mondrand) | getroffen, Fehler 0,1–0,8 % des Radius, ca. 1 Min. |
+| #1a (Ausschnitt ohne Rand) | getroffen, 0,35 %, ca. 3 Min. |
+| #3a, #3b (Hochland-Ausschnitte) | nicht gefunden, Score ≤ 0,70, API meldet `reliable: false` |
+
+Ein beschriftetes Bild erzeugt `scripts/annotate.py FOTO ZEIT_UTC BREITE LAENGE`.
+
 ## Loslegen
 
 ```bash
