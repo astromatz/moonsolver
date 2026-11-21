@@ -9,6 +9,7 @@ Ansatz (Phase 1): Aus Aufnahmezeit und Standort wird die Mondansicht berechnet (
 | Pfad | Inhalt |
 | --- | --- |
 | `backend/moonsolver/` | FastAPI-Backend und Rechenmodule |
+| `backend/moonsolver/static/` | Weboberfläche (wird unter `/` ausgeliefert) |
 | `scripts/fetch_data.py` | Lädt Ephemeriden, Gazetteer und Mondkarten nach `data/` |
 | `data/` | Heruntergeladene Daten (nicht im Repo) |
 | `testset/` | Testfotos mit Zeit, Ort und Ground Truth |
@@ -35,3 +36,5 @@ python scripts/fetch_data.py        # Daten laden, siehe Hinweise im Skript
 uvicorn moonsolver.api:app --reload
 pytest
 ```
+
+Danach `http://localhost:8000` öffnen: Foto hineinziehen, Aufnahmezeit (Ortszeit oder UTC) und Standort eintragen, „Krater erkennen“. Das beschriftete Bild lässt sich als PNG speichern. Der Regler „Kleinste Krater“ filtert ohne neue Rechnung.

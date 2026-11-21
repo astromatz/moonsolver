@@ -4,15 +4,24 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
 from .observation import Observation
 
+STATIC = Path(__file__).parent / "static"
+
 app = FastAPI(title="Moonsolver")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(STATIC / "index.html")
 
 
 @app.get("/health")

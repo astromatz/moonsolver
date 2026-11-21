@@ -9,6 +9,13 @@ def test_health():
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_index_serves_page():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert 'id="drop"' in r.text
+
+
 def _post(time_utc, lat=51.0, image=b"x"):
     return client.post(
         "/solve",
