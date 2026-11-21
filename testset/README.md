@@ -20,4 +20,4 @@ Herkunft der Zeiten (Ort für alle: Köln, 50.9375° N, 6.9603° O):
 - `#3`: Dateiname `22_41_28`, als MEZ gelesen → 21:41:28 UTC. Ob die Aufnahmesoftware MEZ oder UTC schrieb, ist ungeprüft.
 - `#1`, `#2`, `#4`: nur Datum im Dateinamen, kein EXIF. Zeit geschätzt aus Mondhöhe über Köln (Skyfield) und dem Dateidatum der bearbeiteten JPGs (#2: 23:21 MESZ, #4: 23:00 MESZ als Obergrenze; #1: Mond geht am 2.9.2022 gegen 20:30 UTC unter).
 
-Ground Truth: Für 5 Krater pro Foto die Pixelposition (x, y) in `groundtruth.csv` (`file,name,x,y`), abgelesen mit LTVT oder Virtual Moon Atlas.
+Ground Truth: Für 5 Krater pro Foto die Pixelposition (x, y) in `groundtruth.csv` (`file,name,x,y`). Am einfachsten mit `tools/groundtruth.html` (im Browser öffnen, Fotos laden, Krater anklicken, Namen wählen, CSV speichern). Namen bestimmen mit Virtual Moon Atlas oder LTVT. Neu erzeugen nach Gazetteer-Update: `python scripts/build_groundtruth_tool.py`.
