@@ -7,3 +7,4 @@ data/*
 !data/README.md
 testset/*.jpg
 testset/*.png
+testset/crops/

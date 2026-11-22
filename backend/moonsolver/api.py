@@ -31,7 +31,7 @@ def health() -> dict[str, str]:
 
 def _run(photo: np.ndarray, obs: Observation, min_diameter_px: float) -> dict:
     from .geometry import moon_view
-    from .solve import labels, solve
+    from .solve import RELIABLE_SCORE, labels, solve
 
     view = moon_view(obs)
     sol = solve(photo, view)
@@ -43,8 +43,8 @@ def _run(photo: np.ndarray, obs: Observation, min_diameter_px: float) -> dict:
             "moon_radius_px": sol.radius_px,
             "moon_center_px": [sol.center_x, sol.center_y],
             "score": sol.score,
-            # Testset: Treffer hatten Score >= 0,82, Fehlschlaege <= 0,70
-            "reliable": sol.score >= 0.8,
+            # Schwelle siehe solve.RELIABLE_SCORE (haengt vom Vergleichsmerkmal ab)
+            "reliable": sol.score >= RELIABLE_SCORE,
         },
         "view": {
             "libration_lon_deg": view.libration_lon_deg,
