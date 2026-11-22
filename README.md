@@ -21,9 +21,13 @@ Ansatz (Phase 1): Aus Aufnahmezeit und Standort wird die Mondansicht berechnet (
 
 | Bild | Ergebnis |
 | --- | --- |
-| #1, #2, #3, #4 (mit Mondrand) | getroffen, Fehler 0,1–0,8 % des Radius, ca. 1 Min. |
-| #1a (Ausschnitt ohne Rand) | getroffen, 0,35 %, ca. 3 Min. |
-| #3a, #3b (Hochland-Ausschnitte) | nicht gefunden, Score ≤ 0,70, API meldet `reliable: false` |
+| #1, #2, #4 (mit Mondrand) | getroffen, Fehler 0,4–0,7 % des Radius, ca. 1 Min. |
+| #3 (Panorama mit Teilrand) | getroffen, 0,14 %, ca. 3,5 Min. |
+| #1a (Ausschnitt ohne Rand) | getroffen, 0,25 %, ca. 2,5 Min. |
+| #3b (Hochland-Ausschnitt) | getroffen, 0,10 %, ca. 3,5 Min. |
+| #3a (Tycho-Ausschnitt) | nicht gefunden (falsch gespiegelt), API meldet `reliable: false` |
+
+Der Abgleich vergleicht Kantenstärke (Kraterränder, Schattenkanten) statt Helligkeit; `MOONSOLVER_FEATURE=gray` schaltet auf den alten Helligkeitsvergleich zurück. `scripts/make_crops.py` erzeugt 98 randlose Testausschnitte mit bekannter Lösung und misst sie mit `--eval` (Helligkeitsvergleich: 61/98, Hochland 3/16; mit Kanten Hochland-Stichprobe 4/8 statt 1/8, vollständig nicht gemessen).
 
 Ein beschriftetes Bild erzeugt `scripts/annotate.py FOTO ZEIT_UTC BREITE LAENGE`.
 
