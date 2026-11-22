@@ -18,13 +18,29 @@ from functools import lru_cache
 
 import numpy as np
 from scipy import fft
-from scipy.ndimage import affine_transform, gaussian_filter, zoom
+from scipy.ndimage import affine_transform, gaussian_filter, gaussian_gradient_magnitude, zoom
 
 from .data import MOON_RADIUS_KM, gazetteer
 from .geometry import MoonView
 from .render import Frame, render
 
 WORKERS = max(1, (os.cpu_count() or 4) - 1)
+
+# Vergleichsmerkmal: "edge" = lokal normierte Kantenstaerke (Kraterraender, Schattenkanten),
+# "gray" = Helligkeit wie bisher. Umschaltbar fuer Vergleichsmessungen.
+FEATURE = os.environ.get("MOONSOLVER_FEATURE", "edge")
+EDGE_SIGMA = 1.0    # Glaettung vor dem Gradienten, in Pixeln der Vergleichsaufloesung (Verfeinerung)
+COARSE_SIGMA = float(os.environ.get("MOONSOLVER_COARSE_SIGMA", "1.0"))  # Kanten der Grobsuche (2.0 getestet: schlechter)
+NORM_SIGMA = 6.0    # Umkreis der lokalen Normierung
+
+
+def features(img: np.ndarray, sigma: float = EDGE_SIGMA) -> np.ndarray:
+    """Wandelt ein Graubild in das Vergleichsmerkmal um."""
+    if FEATURE == "gray":
+        return img
+    g = gaussian_gradient_magnitude(img.astype(np.float64), sigma)
+    # lokal normieren: schwache Hochland-Strukturen zaehlen wie starke Mare-Raender
+    return g / (gaussian_filter(g, NORM_SIGMA) + 0.05 * float(g.mean()) + 1e-9)
 
 
 @dataclass(frozen=True)
@@ -65,8 +81,9 @@ def _rot(theta_deg: float) -> np.ndarray:
 
 
 @lru_cache(maxsize=8)
-def _render_cached(view: MoonView, r_ref: int):
-    return render(view, r_ref)
+def _render_cached(view: MoonView, r_ref: int, sigma: float = EDGE_SIGMA):
+    img, frame = render(view, r_ref)
+    return features(img, sigma), frame
 
 
 def _box(ii: np.ndarray, h: int, w: int) -> np.ndarray:
@@ -79,7 +96,7 @@ def _subpix(a, b, c):
     return 0.0 if abs(d) < 1e-12 else float(np.clip(0.5 * (a - c) / d, -0.5, 0.5))
 
 
-def _match_angle(img, frame: Frame, phi, window, photo, scales, mirror):
+def _match_angle(img, frame: Frame, phi, window, photo, scales, mirror, sigma):
     """Alle Massstaebe fuer eine Drehung phi. window = (x0, y0, w, h) im gedrehten Render."""
     c = np.array([frame.cx, frame.cy])
     x0, y0, ww, wh = window
@@ -107,7 +124,7 @@ def _match_angle(img, frame: Frame, phi, window, photo, scales, mirror):
         t = src
         if s < 1:
             t = gaussian_filter(t, max(0.0, 0.5 / s - 0.5))
-        t = zoom(t, (th / ph, tw / pw), order=1)
+        t = features(zoom(t, (th / ph, tw / pw), order=1), sigma)
         t = t - t.mean()
         var_t = float((t * t).sum())
         if var_t < 1e-9:
@@ -136,12 +153,12 @@ def _match_angle(img, frame: Frame, phi, window, photo, scales, mirror):
     return out
 
 
-def _search(photo, view, r_ref, phis, scales, mirrors, window=None):
-    img, frame = _render_cached(view, r_ref)
+def _search(photo, view, r_ref, phis, scales, mirrors, window=None, sigma=EDGE_SIGMA):
+    img, frame = _render_cached(view, r_ref, sigma)
     win = window or (0, 0, img.shape[1], img.shape[0])
     jobs = [(phi, m) for m in mirrors for phi in phis]
     with ThreadPoolExecutor(WORKERS) as ex:
-        res = ex.map(lambda j: _match_angle(img, frame, j[0], win, photo, scales, j[1]), jobs)
+        res = ex.map(lambda j: _match_angle(img, frame, j[0], win, photo, scales, j[1], sigma), jobs)
         out = [s for r in res for s in r]
     out.sort(key=lambda s: -s.score)
     return out
@@ -206,7 +223,8 @@ def _coarse(photo_rgb, view, dim, r_lo, r_hi, step_r, step_deg, r_cap, mirrors):
     cands = []
     for r_ref in sorted({level(r) for r in radii}):
         rs = [r for r in radii if level(r) == r_ref]
-        cands += _search(small, view, r_ref, np.arange(0, 360, step_deg), [r_ref / r for r in rs], mirrors)
+        cands += _search(small, view, r_ref, np.arange(0, 360, step_deg), [r_ref / r for r in rs], mirrors,
+                         sigma=COARSE_SIGMA)
     return [c.scaled(1 / f1) for c in sorted(cands, key=lambda s: -s.score)]
 
 
@@ -217,7 +235,10 @@ def _finish(photo_rgb, view, cands, n) -> Solution:
     return _refine(mid, view, best, 1.5, 7, 0.03, 7, 0.08).scaled(1 / f2)
 
 
-GOOD_SCORE = 0.9  # ab hier gilt die schnelle Suche als sicher
+GOOD_SCORE = 0.9 if FEATURE == "gray" else 0.55  # ab hier gilt die schnelle Suche als sicher (Kanten: richtig 0,6-0,8, falsch <= 0,35)
+# Anzeige "sicher" in der Weboberflaeche. Kanten: richtig 0,44-0,80, hoechste falsche 0,37 (#3a)
+RELIABLE_SCORE = 0.8 if FEATURE == "gray" else 0.45
+N_REFINE = int(os.environ.get("MOONSOLVER_N_REFINE", "16"))  # Kandidaten der feinen Suche
 
 
 def solve(photo_rgb: np.ndarray, view: MoonView, *, mirrors=(False, True)) -> Solution:
@@ -226,7 +247,9 @@ def solve(photo_rgb: np.ndarray, view: MoonView, *, mirrors=(False, True)) -> So
     if best.score >= GOOD_SCORE:
         return best
     # Ausschnitte ohne Rand brauchen eine feinere Grobsuche (ca. 2 min): 256 px, Radius >= halbe Bildgroesse
-    alt = _finish(photo_rgb, view, _coarse(photo_rgb, view, 256, 0.5, 8, 1.12, 5.0, 512, mirrors), 4)
+    # Kanten haben ein schmales Maximum: die Wahrheit liegt in der Grobsuche oft nur unter den
+    # ersten paar Dutzend, deshalb mehr Kandidaten verfeinern
+    alt = _finish(photo_rgb, view, _coarse(photo_rgb, view, 256, 0.5, 8, 1.12, 5.0, 512, mirrors), N_REFINE)
     return alt if alt.score > best.score else best
 
 
